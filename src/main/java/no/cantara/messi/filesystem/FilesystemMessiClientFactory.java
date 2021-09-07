@@ -53,8 +53,8 @@ public class FilesystemMessiClientFactory implements MessiClientFactory {
         int avroSyncInterval = Integer.parseInt(avroFileSyncInterval);
         int minListingIntervalSeconds = Integer.parseInt(listingMinIntervalSeconds);
         Path storageFolder = Paths.get(filesystemStorageFolderConfig);
-        AvroMessiUtils readOnlyFilesystemRawdataUtils = new FilesystemMessiUtils(storageFolder);
-        AvroMessiUtils readWriteFilesystemRawdataUtils = new FilesystemMessiUtils(storageFolder);
-        return new FilesystemMessiClient(localTempFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, minListingIntervalSeconds, readOnlyFilesystemRawdataUtils, readWriteFilesystemRawdataUtils, storageFolder);
+        AvroMessiUtils readOnlyFilesystemMessiUtils = new FilesystemMessiUtils(storageFolder);
+        AvroMessiUtils readWriteFilesystemMessiUtils = new FilesystemMessiUtils(storageFolder);
+        return new FilesystemMessiClient(localTempFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, minListingIntervalSeconds, readOnlyFilesystemMessiUtils, readWriteFilesystemMessiUtils, storageFolder);
     }
 }

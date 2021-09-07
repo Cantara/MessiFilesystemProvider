@@ -14,7 +14,7 @@ class FilesystemFileMetadata extends AvroFileMetadata {
     }
 
     @Override
-    public MessiAvroFile toRawdataAvroFile(String topic) {
+    public MessiAvroFile toMessiAvroFile(String topic) {
         return new FilesystemMessiAvroFile(storageFolder.resolve(topic).resolve(toFilename()));
     }
 }

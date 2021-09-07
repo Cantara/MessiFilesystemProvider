@@ -183,8 +183,8 @@ class AvroMessiProducer implements MessiProducer {
             Path path = pathRef.get();
             if (path != null) {
                 if (activeAvrofileMetadata.getCount() > 0) {
-                    MessiAvroFile rawdataAvroFile = activeAvrofileMetadata.toRawdataAvroFile(topic);
-                    uploadQueue.add(new Upload(path, rawdataAvroFile)); // schedule upload asynchronously
+                    MessiAvroFile messiAvroFile = activeAvrofileMetadata.toMessiAvroFile(topic);
+                    uploadQueue.add(new Upload(path, messiAvroFile)); // schedule upload asynchronously
                 } else {
                     // no records, no need to write file to output-store
                 }

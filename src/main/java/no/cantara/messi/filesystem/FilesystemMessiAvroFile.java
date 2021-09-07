@@ -42,7 +42,7 @@ class FilesystemMessiAvroFile implements MessiAvroFile {
 
     @Override
     public String toString() {
-        return "FilesystemRawdataAvroFile{" +
+        return "FilesystemMessiAvroFile{" +
                 "path=" + path +
                 '}';
     }

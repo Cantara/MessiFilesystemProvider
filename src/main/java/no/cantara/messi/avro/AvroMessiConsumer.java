@@ -85,8 +85,8 @@ class AvroMessiConsumer implements MessiConsumer {
             Map.Entry<Long, MessiAvroFile> nextEntry = findNextBlob(timeout, unit, start);
             if (nextEntry == null) return null; // timeout
             activeBlobFromKeyRef.set(nextEntry.getKey());
-            MessiAvroFile rawdataAvroFile = nextEntry.getValue();
-            setDataFileReader(rawdataAvroFile);
+            MessiAvroFile messiAvroFile = nextEntry.getValue();
+            setDataFileReader(messiAvroFile);
             return receive(timeout, unit);
         }
         GenericRecord record = dataFileReader.next();
@@ -174,8 +174,8 @@ class AvroMessiConsumer implements MessiConsumer {
             return;
         }
         activeBlobFromKeyRef.set(firstEntryHigherOrEqual.getKey());
-        MessiAvroFile rawdataAvroFile = firstEntryHigherOrEqual.getValue();
-        DataFileReader<GenericRecord> dataFileReader = setDataFileReader(rawdataAvroFile);
+        MessiAvroFile messiAvroFile = firstEntryHigherOrEqual.getValue();
+        DataFileReader<GenericRecord> dataFileReader = setDataFileReader(messiAvroFile);
         GenericRecord record = null;
         while (dataFileReader.hasNext()) {
             try {
@@ -192,11 +192,11 @@ class AvroMessiConsumer implements MessiConsumer {
         }
     }
 
-    private DataFileReader<GenericRecord> setDataFileReader(MessiAvroFile rawdataAvroFile) {
+    private DataFileReader<GenericRecord> setDataFileReader(MessiAvroFile messiAvroFile) {
         DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiProducer.schema);
         DataFileReader<GenericRecord> dataFileReader;
         try {
-            dataFileReader = new DataFileReader<>(rawdataAvroFile.seekableInput(), datumReader);
+            dataFileReader = new DataFileReader<>(messiAvroFile.seekableInput(), datumReader);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

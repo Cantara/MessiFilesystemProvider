@@ -43,17 +43,17 @@ public abstract class AvroMessiClient implements MessiClient {
 
     final List<AvroMessiProducer> producers = new CopyOnWriteArrayList<>();
     final List<AvroMessiConsumer> consumers = new CopyOnWriteArrayList<>();
-    final AvroMessiUtils readOnlyAvroRawdataUtils;
-    final AvroMessiUtils readWriteAvroRawdataUtils;
+    final AvroMessiUtils readOnlyAvroMessiUtils;
+    final AvroMessiUtils readWriteAvroMessiUtils;
 
-    public AvroMessiClient(Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, int fileListingMinIntervalSeconds, AvroMessiUtils readOnlyAvroRawdataUtils, AvroMessiUtils readWriteAvroRawdataUtils) {
+    public AvroMessiClient(Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, int fileListingMinIntervalSeconds, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils) {
         this.tmpFileFolder = tmpFileFolder;
         this.avroMaxSeconds = avroMaxSeconds;
         this.avroMaxBytes = avroMaxBytes;
         this.avroSyncInterval = avroSyncInterval;
         this.fileListingMinIntervalSeconds = fileListingMinIntervalSeconds;
-        this.readOnlyAvroRawdataUtils = readOnlyAvroRawdataUtils;
-        this.readWriteAvroRawdataUtils = readWriteAvroRawdataUtils;
+        this.readOnlyAvroMessiUtils = readOnlyAvroMessiUtils;
+        this.readWriteAvroMessiUtils = readWriteAvroMessiUtils;
     }
 
     @Override
@@ -61,7 +61,7 @@ public abstract class AvroMessiClient implements MessiClient {
         if (closed.get()) {
             throw new MessiClosedException();
         }
-        AvroMessiProducer producer = new AvroMessiProducer(readWriteAvroRawdataUtils, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, topic);
+        AvroMessiProducer producer = new AvroMessiProducer(readWriteAvroMessiUtils, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, topic);
         producers.add(producer);
         return producer;
     }
@@ -71,7 +71,7 @@ public abstract class AvroMessiClient implements MessiClient {
         if (closed.get()) {
             throw new MessiClosedException();
         }
-        AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroRawdataUtils, topic, (AvroMessiCursor) cursor, fileListingMinIntervalSeconds);
+        AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroMessiUtils, topic, (AvroMessiCursor) cursor, fileListingMinIntervalSeconds);
         consumers.add(consumer);
         return consumer;
     }
@@ -89,7 +89,7 @@ public abstract class AvroMessiClient implements MessiClient {
     private ULID.Value ulidOfPosition(String topic, String position, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
         ULID.Value lowerBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp - tolerance.toMillis());
         ULID.Value upperBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp + tolerance.toMillis());
-        try (AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroRawdataUtils, topic, new AvroMessiCursor(lowerBoundUlid, true), fileListingMinIntervalSeconds)) {
+        try (AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroMessiUtils, topic, new AvroMessiCursor(lowerBoundUlid, true), fileListingMinIntervalSeconds)) {
             MessiMessage message;
             while ((message = consumer.receive(0, TimeUnit.SECONDS)) != null) {
                 if (message.clientPublishedTimestamp() > upperBoundUlid.timestamp()) {
@@ -123,17 +123,17 @@ public abstract class AvroMessiClient implements MessiClient {
 
     @Override
     public MessiMessage lastMessage(String topic) throws MessiClosedException {
-        NavigableMap<Long, MessiAvroFile> topicBlobs = readOnlyAvroRawdataUtils.getTopicBlobs(topic);
+        NavigableMap<Long, MessiAvroFile> topicBlobs = readOnlyAvroMessiUtils.getTopicBlobs(topic);
         if (topicBlobs.isEmpty()) {
             return null;
         }
-        MessiAvroFile rawdataAvroFile = topicBlobs.lastEntry().getValue();
-        LOG.debug("Reading last message from RawdataAvroFile: {}", rawdataAvroFile);
+        MessiAvroFile messiAvroFile = topicBlobs.lastEntry().getValue();
+        LOG.debug("Reading last message from MessiAvroFile: {}", messiAvroFile);
         DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiProducer.schema);
         DataFileReader<GenericRecord> dataFileReader;
         try {
-            dataFileReader = new DataFileReader<>(rawdataAvroFile.seekableInput(), datumReader);
-            dataFileReader.seek(rawdataAvroFile.getOffsetOfLastBlock());
+            dataFileReader = new DataFileReader<>(messiAvroFile.seekableInput(), datumReader);
+            dataFileReader.seek(messiAvroFile.getOffsetOfLastBlock());
             GenericRecord record = null;
             while (dataFileReader.hasNext()) {
                 record = dataFileReader.next(record);

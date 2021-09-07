@@ -32,12 +32,12 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
-public class FilesystemAvroRawdataClientTck {
+public class FilesystemMessiClientTck {
 
     MessiClient client;
 
     @BeforeMethod
-    public void createRawdataClient() throws IOException {
+    public void createClient() throws IOException {
         ApplicationProperties configuration = ApplicationProperties.builder()
                 .values()
                 .put("local-temp-folder", "target/_tmp_avro_")
@@ -66,7 +66,7 @@ public class FilesystemAvroRawdataClientTck {
     }
 
     @AfterMethod
-    public void closeRawdataClient() {
+    public void closeClient() {
         client.close();
     }
 

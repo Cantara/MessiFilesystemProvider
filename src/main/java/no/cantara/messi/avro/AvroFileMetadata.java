@@ -55,5 +55,5 @@ public abstract class AvroFileMetadata {
         return fromTime + "_" + getCount() + "_" + getSyncOfLastBlock() + "_" + getPositionOfFirstRecord() + ".avro";
     }
 
-    public abstract MessiAvroFile toRawdataAvroFile(String topic);
+    public abstract MessiAvroFile toMessiAvroFile(String topic);
 }
