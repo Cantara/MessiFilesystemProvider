@@ -24,27 +24,27 @@ public class FilesystemMessiClientFactory implements MessiClientFactory {
     public MessiClient create(ApplicationProperties applicationProperties) {
         String localTempFolderConfig = applicationProperties.get("local-temp-folder");
         if (localTempFolderConfig == null) {
-            throw new IllegalArgumentException("Missing configuration property: localTempFolderConfig");
+            throw new IllegalArgumentException("Missing configuration property: local-temp-folder");
         }
         String avroFileMaxSecondsConfig = applicationProperties.get("avro-file.max.seconds");
         if (avroFileMaxSecondsConfig == null) {
-            throw new IllegalArgumentException("Missing configuration property: avroFileMaxSecondsConfig");
+            throw new IllegalArgumentException("Missing configuration property: avro-file.max.seconds");
         }
         String avroFileMaxBytesConfig = applicationProperties.get("avro-file.max.bytes");
         if (avroFileMaxBytesConfig == null) {
-            throw new IllegalArgumentException("Missing configuration property: avroFileMaxBytesConfig");
+            throw new IllegalArgumentException("Missing configuration property: avro-file.max.bytes");
         }
         String avroFileSyncInterval = applicationProperties.get("avro-file.sync.interval");
         if (avroFileSyncInterval == null) {
-            throw new IllegalArgumentException("Missing configuration property: avroFileSyncInterval");
+            throw new IllegalArgumentException("Missing configuration property: avro-file.sync.interval");
         }
         String listingMinIntervalSeconds = applicationProperties.get("listing.min-interval-seconds");
         if (listingMinIntervalSeconds == null) {
-            throw new IllegalArgumentException("Missing configuration property: listingMinIntervalSeconds");
+            throw new IllegalArgumentException("Missing configuration property: listing.min-interval-seconds");
         }
         String filesystemStorageFolderConfig = applicationProperties.get("filesystem.storage-folder");
         if (filesystemStorageFolderConfig == null) {
-            throw new IllegalArgumentException("Missing configuration property: filesystemStorageFolderConfig");
+            throw new IllegalArgumentException("Missing configuration property: filesystem.storage-folder");
         }
 
         Path localTempFolder = Paths.get(localTempFolderConfig);
