@@ -1,0 +1,9 @@
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
+<suite name="tests">
+    <test name="default">
+        <packages>
+            <package name="no.cantara.messi.avro.*"/>
+            <package name="no.cantara.messi.filesystem.*"/>
+        </packages>
+    </test>
+</suite>
