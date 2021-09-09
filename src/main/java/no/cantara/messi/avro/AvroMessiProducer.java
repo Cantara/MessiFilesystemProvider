@@ -2,15 +2,13 @@ package no.cantara.messi.avro;
 
 import de.huxhorn.sulky.ulid.ULID;
 import no.cantara.messi.api.MessiClosedException;
-import no.cantara.messi.api.MessiMessage;
 import no.cantara.messi.api.MessiProducer;
 import no.cantara.messi.api.MessiULIDUtils;
-import org.apache.avro.Schema;
-import org.apache.avro.SchemaBuilder;
+import no.cantara.messi.protos.MessiMessage;
+import no.cantara.messi.protos.MessiOrdering;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.file.SeekableFileInput;
-import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -20,10 +18,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -32,28 +29,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
-
-import static java.util.Optional.ofNullable;
 
 class AvroMessiProducer implements MessiProducer {
 
     static final Logger LOG = LoggerFactory.getLogger(AvroMessiProducer.class);
-
-    static final Schema schema = SchemaBuilder.record("MessiMessage")
-            .fields()
-            .name("id").type().fixed("ulid").size(16).noDefault()
-            .name("clientSourceId").type().nullable().stringType().noDefault()
-            .name("providerPublishedTimestamp").type().longType().longDefault(-1)
-            .name("providerShardId").type().nullable().stringType().noDefault()
-            .name("providerSequenceNumber").type().nullable().stringType().noDefault()
-            .name("partitionKey").type().nullable().stringType().noDefault()
-            .name("orderingGroup").type().nullable().stringType().noDefault()
-            .name("sequenceNumber").type().longType().longDefault(0)
-            .name("externalId").type().stringType().noDefault()
-            .name("attributes").type().map().values().stringType().noDefault()
-            .name("data").type().map().values().bytesType().noDefault()
-            .endRecord();
 
     final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -151,12 +130,12 @@ class AvroMessiProducer implements MessiProducer {
             Path path = Files.createTempFile(topicFolder, "", ".avro");
             pathRef.set(path);
             activeAvrofileMetadata.clear();
-            DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(schema);
+            DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<>(AvroMessiMessageSchema.schema);
             DataFileWriter<GenericRecord> dataFileWriter = new DataFileWriter<>(datumWriter);
             dataFileWriter.setSyncInterval(2 * avroSyncInterval);
             dataFileWriter.setFlushOnEveryBlock(true);
             dataFileWriterRef.set(dataFileWriter);
-            dataFileWriter.create(schema, path.toFile());
+            dataFileWriter.create(AvroMessiMessageSchema.schema, path.toFile());
             long lastSyncPosition = dataFileWriter.sync(); // position of first block
             activeAvrofileMetadata.setSyncOfLastBlock(lastSyncPosition);
         } catch (IOException e) {
@@ -197,7 +176,7 @@ class AvroMessiProducer implements MessiProducer {
     }
 
     static void verifySeekableToLastBlockOffsetAsGivenByFilename(Path path, long offsetOfLastBlock) throws IOException {
-        DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiProducer.schema);
+        DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiMessageSchema.schema);
         try (DataFileReader<GenericRecord> dataFileReader = new DataFileReader<>(new SeekableFileInput(path.toFile()), datumReader)) {
             dataFileReader.seek(offsetOfLastBlock);
             dataFileReader.hasNext(); // will throw an exception if offset is wrong
@@ -233,28 +212,19 @@ class AvroMessiProducer implements MessiProducer {
                     timestampOfFirstMessageInWindow.set(now);
                 }
 
-                ULID.Value ulidValue = message.ulid();
-                if (ulidValue == null) {
+                ULID.Value ulidValue;
+                if (message.hasUlid()) {
+                    ulidValue = MessiULIDUtils.toUlid(message.getUlid());
+                } else {
                     ulidValue = MessiULIDUtils.nextMonotonicUlid(ulid, prevUlid.get());
                 }
                 prevUlid.set(ulidValue);
 
                 activeAvrofileMetadata.setIdOfFirstRecord(ulidValue);
-                activeAvrofileMetadata.setPositionOfFirstRecord(message.externalId());
+                activeAvrofileMetadata.setPositionOfFirstRecord(message.getExternalId());
 
                 try {
-                    GenericRecord record = new GenericData.Record(schema);
-                    record.put("id", new GenericData.Fixed(schema.getField("id").schema(), ulidValue.toBytes()));
-                    record.put("clientSourceId", message.clientSourceId());
-                    record.put("providerPublishedTimestamp", message.providerPublishedTimestamp());
-                    record.put("providerShardId", message.providerShardId());
-                    record.put("providerSequenceNumber", message.providerSequenceNumber());
-                    record.put("partitionKey", message.partitionKey());
-                    record.put("orderingGroup", message.orderingGroup());
-                    record.put("sequenceNumber", message.sequenceNumber());
-                    record.put("externalId", message.externalId());
-                    record.put("attributes", message.attributeMap());
-                    record.put("data", message.data().entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> ByteBuffer.wrap(e.getValue()))));
+                    GenericRecord record = AvroMessiMessageSchema.toAvro(ulidValue, message);
 
                     if (avroBytesWrittenInBlock.get() >= avroSyncInterval) {
                         // start new block in avro file
@@ -283,11 +253,11 @@ class AvroMessiProducer implements MessiProducer {
     static long estimateAvroSizeOfMessage(MessiMessage message) {
         // TODO more fields
         return 16 + // ulid
-                2 + ofNullable(message.orderingGroup()).map(String::length).orElse(0) + // orderingGroup
+                2 + Optional.of(message.getOrdering()).map(MessiOrdering::getGroup).map(String::length).orElse(0) + // orderingGroup
                 6 + // sequenceNumber
-                2 + message.externalId().length() // position
-                + message.data().entrySet().stream()
-                .map(e -> 2L + e.getKey().length() + 4 + e.getValue().length)
+                2 + message.getExternalId().length() // position
+                + message.getDataMap().entrySet().stream()
+                .map(e -> 2L + e.getKey().length() + 4 + e.getValue().size())
                 .reduce(0L, Long::sum);
     }
 

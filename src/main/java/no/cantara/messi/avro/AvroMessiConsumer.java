@@ -3,16 +3,14 @@ package no.cantara.messi.avro;
 import de.huxhorn.sulky.ulid.ULID;
 import no.cantara.messi.api.MessiClosedException;
 import no.cantara.messi.api.MessiConsumer;
-import no.cantara.messi.api.MessiMessage;
+import no.cantara.messi.api.MessiULIDUtils;
+import no.cantara.messi.protos.MessiMessage;
 import org.apache.avro.file.DataFileReader;
-import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DatumReader;
-import org.apache.avro.util.Utf8;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.Deque;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -21,9 +19,6 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
-
-import static java.util.Optional.ofNullable;
 
 class AvroMessiConsumer implements MessiConsumer {
 
@@ -44,13 +39,14 @@ class AvroMessiConsumer implements MessiConsumer {
             try {
                 MessiMessage msg;
                 while ((msg = receive(0, TimeUnit.SECONDS)) != null) {
-                    if (msg.ulid().equals(cursor.ulid)) {
+                    ULID.Value ulid = MessiULIDUtils.toUlid(msg.getUlid());
+                    if (ulid.equals(cursor.ulid)) {
                         if (cursor.inclusive) {
                             preloadedMessages.addFirst(msg);
                         }
                         break; // found match
                     }
-                    if (msg.clientPublishedTimestamp() > cursor.ulid.timestamp()) {
+                    if (ulid.timestamp() > cursor.ulid.timestamp()) {
                         // past possible point of match, use this message as starting point
                         preloadedMessages.addFirst(msg);
                         break;
@@ -90,7 +86,7 @@ class AvroMessiConsumer implements MessiConsumer {
             return receive(timeout, unit);
         }
         GenericRecord record = dataFileReader.next();
-        MessiMessage msg = toMessage(record);
+        MessiMessage msg = AvroMessiMessageSchema.toMessage(record);
         return msg;
     }
 
@@ -108,38 +104,6 @@ class AvroMessiConsumer implements MessiConsumer {
             nextEntry = topicAvroFileCache.blobsByTimestamp().higherEntry(currentBlobKey);
         }
         return nextEntry;
-    }
-
-    static MessiMessage toMessage(GenericRecord record) {
-        GenericData.Fixed id = (GenericData.Fixed) record.get("id");
-        ULID.Value ulid = ULID.fromBytes(id.bytes());
-        String clientSourceId = ofNullable(record.get("clientSourceId")).map(Object::toString).orElse(null);
-        long providerPublishedTimestamp = ofNullable(record.get("providerPublishedTimestamp")).map(v -> (Long) v).orElse(-1l);
-        String providerShardId = ofNullable(record.get("providerShardId")).map(Object::toString).orElse(null);
-        String providerSequenceNumber = ofNullable(record.get("providerSequenceNumber")).map(Object::toString).orElse(null);
-        String partitionKey = ofNullable(record.get("partitionKey")).map(Object::toString).orElse(null);
-        String orderingGroup = ofNullable(record.get("orderingGroup")).map(Object::toString).orElse(null);
-        long sequenceNumber = (Long) record.get("sequenceNumber");
-        String externalId = record.get("externalId").toString();
-        Map<Utf8, ByteBuffer> data = (Map<Utf8, ByteBuffer>) record.get("data");
-        Map<String, byte[]> map = data.entrySet().stream().collect(Collectors.toMap(e -> e.getKey().toString(), e -> e.getValue().array()));
-        Map<Utf8, Utf8> attributes = (Map<Utf8, Utf8>) record.get("attributes");
-
-        MessiMessage.Builder builder = MessiMessage.builder()
-                .ulid(ulid)
-                .clientSourceId(clientSourceId)
-                .providerPublishedTimestamp(providerPublishedTimestamp)
-                .providerShardId(providerShardId)
-                .providerSequenceNumber(providerSequenceNumber)
-                .partitionKey(partitionKey)
-                .orderingGroup(orderingGroup)
-                .sequenceNumber(sequenceNumber)
-                .externalId(externalId)
-                .data(map);
-        for (Map.Entry<Utf8, Utf8> entry : attributes.entrySet()) {
-            builder.attribute(entry.getKey().toString(), entry.getValue().toString());
-        }
-        return builder.build();
     }
 
     @Override
@@ -180,8 +144,8 @@ class AvroMessiConsumer implements MessiConsumer {
         while (dataFileReader.hasNext()) {
             try {
                 record = dataFileReader.next(record);
-                MessiMessage message = toMessage(record);
-                long msgTimestamp = message.clientPublishedTimestamp();
+                MessiMessage message = AvroMessiMessageSchema.toMessage(record);
+                long msgTimestamp = MessiULIDUtils.toUlid(message.getUlid()).timestamp();
                 if (msgTimestamp >= timestamp) {
                     preloadedMessages.add(message);
                     return; // first match
@@ -193,7 +157,7 @@ class AvroMessiConsumer implements MessiConsumer {
     }
 
     private DataFileReader<GenericRecord> setDataFileReader(MessiAvroFile messiAvroFile) {
-        DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiProducer.schema);
+        DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiMessageSchema.schema);
         DataFileReader<GenericRecord> dataFileReader;
         try {
             dataFileReader = new DataFileReader<>(messiAvroFile.seekableInput(), datumReader);

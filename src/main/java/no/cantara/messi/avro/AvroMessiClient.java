@@ -5,10 +5,10 @@ import no.cantara.messi.api.MessiClient;
 import no.cantara.messi.api.MessiClosedException;
 import no.cantara.messi.api.MessiConsumer;
 import no.cantara.messi.api.MessiCursor;
-import no.cantara.messi.api.MessiMessage;
 import no.cantara.messi.api.MessiNoSuchExternalIdException;
 import no.cantara.messi.api.MessiProducer;
 import no.cantara.messi.api.MessiULIDUtils;
+import no.cantara.messi.protos.MessiMessage;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
@@ -92,15 +92,16 @@ public abstract class AvroMessiClient implements MessiClient {
         try (AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroMessiUtils, topic, new AvroMessiCursor(lowerBoundUlid, true), fileListingMinIntervalSeconds)) {
             MessiMessage message;
             while ((message = consumer.receive(0, TimeUnit.SECONDS)) != null) {
-                if (message.clientPublishedTimestamp() > upperBoundUlid.timestamp()) {
+                ULID.Value messageUlid = MessiULIDUtils.toUlid(message.getUlid());
+                if (messageUlid.timestamp() > upperBoundUlid.timestamp()) {
                     throw new MessiNoSuchExternalIdException(
                             String.format("Unable to find position, reached upper-bound. Time-range=[%s,%s), position=%s",
                                     formatTimestamp(lowerBoundUlid.timestamp()),
                                     formatTimestamp(upperBoundUlid.timestamp()),
                                     position));
                 }
-                if (position.equals(message.externalId())) {
-                    return message.ulid(); // found matching position
+                if (position.equals(message.getExternalId())) {
+                    return messageUlid; // found matching position
                 }
             }
         } catch (RuntimeException | Error e) {
@@ -129,7 +130,7 @@ public abstract class AvroMessiClient implements MessiClient {
         }
         MessiAvroFile messiAvroFile = topicBlobs.lastEntry().getValue();
         LOG.debug("Reading last message from MessiAvroFile: {}", messiAvroFile);
-        DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiProducer.schema);
+        DatumReader<GenericRecord> datumReader = new GenericDatumReader<>(AvroMessiMessageSchema.schema);
         DataFileReader<GenericRecord> dataFileReader;
         try {
             dataFileReader = new DataFileReader<>(messiAvroFile.seekableInput(), datumReader);
@@ -138,7 +139,7 @@ public abstract class AvroMessiClient implements MessiClient {
             while (dataFileReader.hasNext()) {
                 record = dataFileReader.next(record);
             }
-            return record == null ? null : AvroMessiConsumer.toMessage(record);
+            return record == null ? null : AvroMessiMessageSchema.toMessage(record);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
