@@ -1,13 +1,10 @@
 package no.cantara.messi.avro;
 
-import de.huxhorn.sulky.ulid.ULID;
 import no.cantara.messi.api.MessiClient;
 import no.cantara.messi.api.MessiClosedException;
 import no.cantara.messi.api.MessiConsumer;
 import no.cantara.messi.api.MessiCursor;
-import no.cantara.messi.api.MessiNoSuchExternalIdException;
 import no.cantara.messi.api.MessiProducer;
-import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.generic.GenericDatumReader;
@@ -18,15 +15,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.util.Date;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class AvroMessiClient implements MessiClient {
@@ -77,53 +68,12 @@ public abstract class AvroMessiClient implements MessiClient {
     }
 
     @Override
-    public MessiCursor cursorOf(String topic, ULID.Value ulid, boolean inclusive) {
-        return new AvroMessiCursor(ulid, inclusive);
+    public AvroMessiCursor.Builder cursorOf() {
+        return new AvroMessiCursor.Builder();
     }
 
     @Override
-    public MessiCursor cursorOf(String topic, String position, boolean inclusive, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
-        return cursorOf(topic, ulidOfPosition(topic, position, approxTimestamp, tolerance), inclusive);
-    }
-
-    private ULID.Value ulidOfPosition(String topic, String position, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
-        ULID.Value lowerBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp - tolerance.toMillis());
-        ULID.Value upperBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp + tolerance.toMillis());
-        try (AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroMessiUtils, topic, new AvroMessiCursor(lowerBoundUlid, true), fileListingMinIntervalSeconds)) {
-            MessiMessage message;
-            while ((message = consumer.receive(0, TimeUnit.SECONDS)) != null) {
-                ULID.Value messageUlid = MessiULIDUtils.toUlid(message.getUlid());
-                if (messageUlid.timestamp() > upperBoundUlid.timestamp()) {
-                    throw new MessiNoSuchExternalIdException(
-                            String.format("Unable to find position, reached upper-bound. Time-range=[%s,%s), position=%s",
-                                    formatTimestamp(lowerBoundUlid.timestamp()),
-                                    formatTimestamp(upperBoundUlid.timestamp()),
-                                    position));
-                }
-                if (position.equals(message.getExternalId())) {
-                    return messageUlid; // found matching position
-                }
-            }
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        throw new MessiNoSuchExternalIdException(
-                String.format("Unable to find position, reached end-of-stream. Time-range=[%s,%s), position=%s",
-                        formatTimestamp(lowerBoundUlid.timestamp()),
-                        formatTimestamp(upperBoundUlid.timestamp()),
-                        position));
-    }
-
-    String formatTimestamp(long timestamp) {
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("YYYY-MM-dd'T'HH:mm:ss.SSS");
-        LocalDateTime dt = LocalDateTime.ofInstant(new Date(timestamp).toInstant(), ZoneOffset.UTC);
-        return dt.format(dtf);
-    }
-
-    @Override
-    public MessiMessage lastMessage(String topic) throws MessiClosedException {
+    public MessiMessage lastMessage(String topic, String shardId) throws MessiClosedException {
         NavigableMap<Long, MessiAvroFile> topicBlobs = readOnlyAvroMessiUtils.getTopicBlobs(topic);
         if (topicBlobs.isEmpty()) {
             return null;

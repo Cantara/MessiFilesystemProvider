@@ -3,6 +3,7 @@ package no.cantara.messi.avro;
 import de.huxhorn.sulky.ulid.ULID;
 import no.cantara.messi.api.MessiClosedException;
 import no.cantara.messi.api.MessiConsumer;
+import no.cantara.messi.api.MessiNoSuchExternalIdException;
 import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
 import org.apache.avro.file.DataFileReader;
@@ -11,6 +12,11 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.DatumReader;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.Deque;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -35,18 +41,19 @@ class AvroMessiConsumer implements MessiConsumer {
         if (cursor == null) {
             seek(0);
         } else {
-            seek(cursor.ulid.timestamp());
+            AvroMessiCursor resolvedCursor = resolve(avroMessageUtils, minFileListingIntervalSeconds, cursor);
+            seek(resolvedCursor.ulid.timestamp());
             try {
                 MessiMessage msg;
                 while ((msg = receive(0, TimeUnit.SECONDS)) != null) {
                     ULID.Value ulid = MessiULIDUtils.toUlid(msg.getUlid());
-                    if (ulid.equals(cursor.ulid)) {
-                        if (cursor.inclusive) {
+                    if (ulid.equals(resolvedCursor.ulid)) {
+                        if (resolvedCursor.inclusive) {
                             preloadedMessages.addFirst(msg);
                         }
                         break; // found match
                     }
-                    if (ulid.timestamp() > cursor.ulid.timestamp()) {
+                    if (ulid.timestamp() > resolvedCursor.ulid.timestamp()) {
                         // past possible point of match, use this message as starting point
                         preloadedMessages.addFirst(msg);
                         break;
@@ -56,6 +63,80 @@ class AvroMessiConsumer implements MessiConsumer {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    public AvroMessiCursor resolve(AvroMessiUtils avroMessageUtils, int minFileListingIntervalSeconds, AvroMessiCursor unresolvedCursor) {
+        switch (unresolvedCursor.type) {
+            case AT_ULID:
+                return unresolvedCursor;
+            case OLDEST_RETAINED:
+                return new AvroMessiCursor.Builder()
+                        .ulid(MessiULIDUtils.beginningOf(0L))
+                        .inclusive(true)
+                        .build();
+            case NOW:
+                return new AvroMessiCursor.Builder()
+                        .ulid(MessiULIDUtils.beginningOf(System.currentTimeMillis()))
+                        .inclusive(true)
+                        .build();
+            case AT_PROVIDER_SEQUENCE:
+                return new AvroMessiCursor.Builder()
+                        .ulid(ULID.parseULID(unresolvedCursor.sequenceNumber))
+                        .inclusive(true)
+                        .build();
+            case AT_PROVIDER_TIME:
+                return new AvroMessiCursor.Builder()
+                        .ulid(MessiULIDUtils.beginningOf(unresolvedCursor.timestamp.toEpochMilli() + (unresolvedCursor.inclusive ? 0 : 1)))
+                        .inclusive(true)
+                        .build();
+            case AT_EXTERNAL_ID:
+                ULID.Value ulid = ulidOfExternalId(avroMessageUtils, minFileListingIntervalSeconds, topic, unresolvedCursor.externalId, unresolvedCursor.externalIdTimestamp.toEpochMilli(), unresolvedCursor.externalIdTimestampTolerance);
+                if (ulid == null) {
+                    throw new MessiNoSuchExternalIdException(String.format("externalId not found: %s", unresolvedCursor.externalId));
+                }
+                return new AvroMessiCursor.Builder()
+                        .ulid(ulid)
+                        .inclusive(unresolvedCursor.inclusive)
+                        .build();
+            default:
+                throw new IllegalStateException("Type not implemented: " + unresolvedCursor.type);
+        }
+    }
+
+    static ULID.Value ulidOfExternalId(AvroMessiUtils readOnlyAvroMessiUtils, int fileListingMinIntervalSeconds, String topic, String externalId, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
+        ULID.Value lowerBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp - tolerance.toMillis());
+        ULID.Value upperBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp + tolerance.toMillis());
+        try (AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroMessiUtils, topic, new AvroMessiCursor.Builder().ulid(lowerBoundUlid).inclusive(true).build(), fileListingMinIntervalSeconds)) {
+            MessiMessage message;
+            while ((message = consumer.receive(0, TimeUnit.SECONDS)) != null) {
+                ULID.Value messageUlid = MessiULIDUtils.toUlid(message.getUlid());
+                if (messageUlid.timestamp() > upperBoundUlid.timestamp()) {
+                    throw new MessiNoSuchExternalIdException(
+                            String.format("Unable to find externalId, reached upper-bound. Time-range=[%s,%s), position=%s",
+                                    formatTimestamp(lowerBoundUlid.timestamp()),
+                                    formatTimestamp(upperBoundUlid.timestamp()),
+                                    externalId));
+                }
+                if (externalId.equals(message.getExternalId())) {
+                    return messageUlid; // found matching position
+                }
+            }
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        throw new MessiNoSuchExternalIdException(
+                String.format("Unable to find externalId, reached end-of-stream. Time-range=[%s,%s), position=%s",
+                        formatTimestamp(lowerBoundUlid.timestamp()),
+                        formatTimestamp(upperBoundUlid.timestamp()),
+                        externalId));
+    }
+
+    static String formatTimestamp(long timestamp) {
+        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("YYYY-MM-dd'T'HH:mm:ss.SSS");
+        LocalDateTime dt = LocalDateTime.ofInstant(new Date(timestamp).toInstant(), ZoneOffset.UTC);
+        return dt.format(dtf);
     }
 
     @Override
