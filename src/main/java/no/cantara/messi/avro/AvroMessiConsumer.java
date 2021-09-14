@@ -3,6 +3,7 @@ package no.cantara.messi.avro;
 import de.huxhorn.sulky.ulid.ULID;
 import no.cantara.messi.api.MessiClosedException;
 import no.cantara.messi.api.MessiConsumer;
+import no.cantara.messi.api.MessiCursor;
 import no.cantara.messi.api.MessiNoSuchExternalIdException;
 import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
@@ -235,6 +236,22 @@ class AvroMessiConsumer implements MessiConsumer {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    @Override
+    public MessiCursor cursorAt(MessiMessage messiMessage) {
+        return new AvroMessiCursor.Builder()
+                .ulid(MessiULIDUtils.toUlid(messiMessage.getUlid()))
+                .inclusive(true)
+                .build();
+    }
+
+    @Override
+    public MessiCursor cursorAfter(MessiMessage messiMessage) {
+        return new AvroMessiCursor.Builder()
+                .ulid(MessiULIDUtils.toUlid(messiMessage.getUlid()))
+                .inclusive(false)
+                .build();
     }
 
     private DataFileReader<GenericRecord> setDataFileReader(MessiAvroFile messiAvroFile) {

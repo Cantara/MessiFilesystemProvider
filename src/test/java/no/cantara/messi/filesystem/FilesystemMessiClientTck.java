@@ -394,6 +394,53 @@ public class FilesystemMessiClientTck {
     }
 
     @Test
+    public void thatCheckpointCanBeCreatedAndUsed() throws Exception {
+        try (MessiProducer producer = client.producer("the-topic")) {
+            producer.publish(
+                    MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
+                    MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
+                    MessiMessage.newBuilder().setExternalId("c").putData("payload1", ByteString.copyFrom(new byte[7])).putData("payload2", ByteString.copyFrom(new byte[7])).build(),
+                    MessiMessage.newBuilder().setExternalId("d").putData("payload1", ByteString.copyFrom(new byte[8])).putData("payload2", ByteString.copyFrom(new byte[8])).build()
+            );
+        }
+        String checkpointAt;
+        String checkpointAfter;
+        try (MessiConsumer consumer = client.consumer("the-topic")) {
+            MessiMessage a = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(a);
+            MessiMessage b = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(b);
+            MessiMessage c = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(c);
+            assertEquals(c.getExternalId(), "c");
+            checkpointAt = consumer.cursorAt(c).checkpoint();
+            checkpointAfter = consumer.cursorAfter(c).checkpoint();
+            MessiMessage d = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(d);
+            assertEquals(d.getExternalId(), "d");
+            MessiMessage e = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNull(e);
+        }
+        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf().checkpoint(checkpointAt).build())) {
+            MessiMessage c = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(c);
+            assertEquals(c.getExternalId(), "c");
+            MessiMessage d = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(d);
+            assertEquals(d.getExternalId(), "d");
+            MessiMessage e = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNull(e);
+        }
+        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf().checkpoint(checkpointAfter).build())) {
+            MessiMessage d = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNotNull(d);
+            assertEquals(d.getExternalId(), "d");
+            MessiMessage e = consumer.receive(100, TimeUnit.MILLISECONDS);
+            assertNull(e);
+        }
+    }
+
+    @Test
     public void thatSeekToWorks() throws Exception {
         long timestampBeforeA;
         long timestampBeforeB;

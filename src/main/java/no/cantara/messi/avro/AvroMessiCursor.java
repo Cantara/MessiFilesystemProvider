@@ -56,6 +56,14 @@ public class AvroMessiCursor implements MessiCursor {
         this.forward = forward;
     }
 
+    @Override
+    public String checkpoint() {
+        if (type != MessiCursorStartingPointType.AT_ULID || ulid == null) {
+            throw new IllegalStateException("Unable to checkpoint cursor that is not created from a compatible consumer");
+        }
+        return ulid + ":" + inclusive;
+    }
+
     static class Builder implements MessiCursor.Builder {
 
         String shardId;
@@ -121,6 +129,19 @@ public class AvroMessiCursor implements MessiCursor {
         public Builder inclusive(boolean inclusive) {
             this.inclusive = inclusive;
             return this;
+        }
+
+        @Override
+        public Builder checkpoint(String checkpoint) {
+            this.type = MessiCursorStartingPointType.AT_ULID;
+            try {
+                String[] parts = checkpoint.split(":");
+                this.ulid = ULID.parseULID(parts[0]);
+                this.inclusive = Boolean.parseBoolean(parts[1]);
+                return this;
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException("checkpoint is not valid", e);
+            }
         }
 
         @Override
