@@ -6,10 +6,11 @@ import no.cantara.config.ApplicationProperties;
 import no.cantara.config.ProviderLoader;
 import no.cantara.messi.api.MessiClient;
 import no.cantara.messi.api.MessiClientFactory;
-import no.cantara.messi.api.MessiConsumer;
-import no.cantara.messi.api.MessiMetadataClient;
 import no.cantara.messi.api.MessiProducer;
+import no.cantara.messi.api.MessiShard;
+import no.cantara.messi.api.MessiStreamingConsumer;
 import no.cantara.messi.api.MessiTimestampUtils;
+import no.cantara.messi.api.MessiTopic;
 import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
 import no.cantara.messi.protos.MessiOrdering;
@@ -22,7 +23,6 @@ import org.testng.annotations.Test;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -38,13 +38,16 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
+import static org.testng.Assert.assertTrue;
 
-public class FilesystemMessiClientTck {
+public class MessiStreamingConsumerTck {
 
     MessiClient client;
+    MessiTopic topic;
+    MessiShard shard;
 
     @BeforeMethod
-    public void createClient() throws IOException {
+    public void createMessiClient() throws IOException {
         ApplicationProperties configuration = ApplicationProperties.builder()
                 .values()
                 .put("local-temp-folder", "target/_tmp_avro_")
@@ -70,6 +73,9 @@ public class FilesystemMessiClientTck {
             Files.createDirectories(folder);
         }
         client = ProviderLoader.configure(configuration, "filesystem", MessiClientFactory.class);
+        topic = client.topicOf("the-topic");
+        shard = topic.shardOf(topic.firstShard());
+        assertTrue(shard.supportsStreaming());
     }
 
     @AfterMethod
@@ -78,32 +84,9 @@ public class FilesystemMessiClientTck {
     }
 
     @Test
-    public void thatLastExternalIdOfEmptyTopicCanBeReadAndIsNull() {
-        assertNull(client.lastMessage("the-topic"));
-    }
-
-    @Test
-    public void thatLastPositionOfProducerCanBeRead() throws InterruptedException {
-        try (MessiProducer producer = client.producer("the-topic")) {
-            producer.publish(
-                    MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
-                    MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build()
-            );
-        }
-
-        assertEquals(client.lastMessage("the-topic").getExternalId(), "b");
-
-        try (MessiProducer producer = client.producer("the-topic")) {
-            producer.publish(MessiMessage.newBuilder().setExternalId("c").putData("payload1", ByteString.copyFrom(new byte[7])).putData("payload2", ByteString.copyFrom(new byte[7])).build());
-        }
-
-        assertEquals(client.lastMessage("the-topic").getExternalId(), "c");
-    }
-
-    @Test
     public void thatAllFieldsOfMessageSurvivesStream() throws Exception {
         ULID.Value ulid = new ULID().nextValue();
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder()
                             .setUlid(MessiUlid.newBuilder().setMsb(ulid.getMostSignificantBits()).setLsb(ulid.getLeastSignificantBits()).build())
@@ -149,7 +132,7 @@ public class FilesystemMessiClientTck {
             );
         }
 
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf().ulid(ulid).inclusive(true).build())) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf().ulid(ulid).inclusive(true).build())) {
             {
                 MessiMessage message = consumer.receive(1, TimeUnit.SECONDS);
                 assertEquals(MessiULIDUtils.toUlid(message.getUlid()), ulid);
@@ -200,9 +183,9 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatSingleMessageCanBeProducedAndConsumerSynchronously() throws InterruptedException {
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorHead())) {
 
-            try (MessiProducer producer = client.producer("the-topic")) {
+            try (MessiProducer producer = topic.producer()) {
                 producer.publish(MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build());
             }
 
@@ -214,11 +197,11 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatSingleMessageCanBeProducedAndConsumerAsynchronously() {
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorHead())) {
 
             CompletableFuture<? extends MessiMessage> future = consumer.receiveAsync();
 
-            try (MessiProducer producer = client.producer("the-topic")) {
+            try (MessiProducer producer = topic.producer()) {
                 producer.publish(MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build());
             }
 
@@ -230,9 +213,9 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatMultipleMessagesCanBeProducedAndConsumerSynchronously() throws InterruptedException {
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorHead())) {
 
-            try (MessiProducer producer = client.producer("the-topic")) {
+            try (MessiProducer producer = topic.producer()) {
                 producer.publish(
                         MessiMessage.newBuilder().setUlid(MessiULIDUtils.toMessiUlid(new ULID().nextValue())).setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                         MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -251,11 +234,11 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatMultipleMessagesCanBeProducedAndConsumerAsynchronously() {
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorHead())) {
 
             CompletableFuture<List<MessiMessage>> future = receiveAsyncAddMessageAndRepeatRecursive(consumer, "c", new ArrayList<>());
 
-            try (MessiProducer producer = client.producer("the-topic")) {
+            try (MessiProducer producer = topic.producer()) {
                 producer.publish(
                         MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                         MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -271,7 +254,7 @@ public class FilesystemMessiClientTck {
         }
     }
 
-    private CompletableFuture<List<MessiMessage>> receiveAsyncAddMessageAndRepeatRecursive(MessiConsumer consumer, String endExternalId, List<MessiMessage> messages) {
+    private CompletableFuture<List<MessiMessage>> receiveAsyncAddMessageAndRepeatRecursive(MessiStreamingConsumer consumer, String endExternalId, List<MessiMessage> messages) {
         return consumer.receiveAsync().thenCompose(message -> {
             messages.add(message);
             if (endExternalId.equals(message.getExternalId())) {
@@ -283,13 +266,13 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatMessagesCanBeConsumedByMultipleConsumers() {
-        try (MessiConsumer consumer1 = client.consumer("the-topic");
-             MessiConsumer consumer2 = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer1 = shard.streamingConsumer(shard.cursorHead());
+             MessiStreamingConsumer consumer2 = shard.streamingConsumer(shard.cursorHead())) {
 
             CompletableFuture<List<MessiMessage>> future1 = receiveAsyncAddMessageAndRepeatRecursive(consumer1, "c", new ArrayList<>());
             CompletableFuture<List<MessiMessage>> future2 = receiveAsyncAddMessageAndRepeatRecursive(consumer2, "c", new ArrayList<>());
 
-            try (MessiProducer producer = client.producer("the-topic")) {
+            try (MessiProducer producer = topic.producer()) {
                 producer.publish(
                         MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                         MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -311,7 +294,7 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatConsumerCanReadFromBeginning() throws Exception {
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                     MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -319,7 +302,7 @@ public class FilesystemMessiClientTck {
                     MessiMessage.newBuilder().setExternalId("d").putData("payload1", ByteString.copyFrom(new byte[8])).putData("payload2", ByteString.copyFrom(new byte[8])).build()
             );
         }
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorAtTrimHorizon())) {
             MessiMessage message = consumer.receive(1, TimeUnit.SECONDS);
             assertEquals(message.getExternalId(), "a");
         }
@@ -327,7 +310,7 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatConsumerCanReadFromFirstMessage() throws Exception {
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                     MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -335,7 +318,7 @@ public class FilesystemMessiClientTck {
                     MessiMessage.newBuilder().setExternalId("d").putData("payload1", ByteString.copyFrom(new byte[8])).putData("payload2", ByteString.copyFrom(new byte[8])).build()
             );
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf()
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf()
                 .externalId("a", Instant.now(), Duration.ofMinutes(1))
                 .build())) {
             MessiMessage message = consumer.receive(1, TimeUnit.SECONDS);
@@ -345,7 +328,7 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatConsumerCanReadFromMiddle() throws Exception {
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                     MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -353,13 +336,13 @@ public class FilesystemMessiClientTck {
                     MessiMessage.newBuilder().setExternalId("d").putData("payload1", ByteString.copyFrom(new byte[8])).putData("payload2", ByteString.copyFrom(new byte[8])).build()
             );
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf()
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf()
                 .externalId("b", Instant.now(), Duration.ofMinutes(1))
                 .build())) {
             MessiMessage message = consumer.receive(1, TimeUnit.SECONDS);
             assertEquals(message.getExternalId(), "c");
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf()
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf()
                 .externalId("c", Instant.now(), Duration.ofMinutes(1))
                 .inclusive(true)
                 .build())) {
@@ -370,7 +353,7 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatConsumerCanReadFromRightBeforeLast() throws Exception {
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                     MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -378,7 +361,7 @@ public class FilesystemMessiClientTck {
                     MessiMessage.newBuilder().setExternalId("d").putData("payload1", ByteString.copyFrom(new byte[8])).putData("payload2", ByteString.copyFrom(new byte[8])).build()
             );
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf()
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf()
                 .externalId("c", Instant.now(), Duration.ofMinutes(1))
                 .build())) {
             MessiMessage message = consumer.receive(1, TimeUnit.SECONDS);
@@ -388,7 +371,7 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatConsumerCanReadFromLast() throws Exception {
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                     MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -396,7 +379,7 @@ public class FilesystemMessiClientTck {
                     MessiMessage.newBuilder().setExternalId("d").putData("payload1", ByteString.copyFrom(new byte[8])).putData("payload2", ByteString.copyFrom(new byte[8])).build()
             );
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf()
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf()
                 .externalId("d", Instant.now(), Duration.ofMinutes(1))
                 .build())) {
             MessiMessage message = consumer.receive(100, TimeUnit.MILLISECONDS);
@@ -406,7 +389,7 @@ public class FilesystemMessiClientTck {
 
     @Test
     public void thatCheckpointCanBeCreatedAndUsed() throws Exception {
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             producer.publish(
                     MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build(),
                     MessiMessage.newBuilder().setExternalId("b").putData("payload1", ByteString.copyFrom(new byte[3])).putData("payload2", ByteString.copyFrom(new byte[3])).build(),
@@ -416,7 +399,7 @@ public class FilesystemMessiClientTck {
         }
         String checkpointAt;
         String checkpointAfter;
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorAtTrimHorizon())) {
             MessiMessage a = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNotNull(a);
             MessiMessage b = consumer.receive(100, TimeUnit.MILLISECONDS);
@@ -424,15 +407,15 @@ public class FilesystemMessiClientTck {
             MessiMessage c = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNotNull(c);
             assertEquals(c.getExternalId(), "c");
-            checkpointAt = consumer.cursorAt(c).checkpoint();
-            checkpointAfter = consumer.cursorAfter(c).checkpoint();
+            checkpointAt = shard.cursorAt(c).checkpoint();
+            checkpointAfter = shard.cursorAfter(c).checkpoint();
             MessiMessage d = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNotNull(d);
             assertEquals(d.getExternalId(), "d");
             MessiMessage e = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNull(e);
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf().checkpoint(checkpointAt).build())) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf().checkpoint(checkpointAt).build())) {
             MessiMessage c = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNotNull(c);
             assertEquals(c.getExternalId(), "c");
@@ -442,7 +425,7 @@ public class FilesystemMessiClientTck {
             MessiMessage e = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNull(e);
         }
-        try (MessiConsumer consumer = client.consumer("the-topic", client.cursorOf().checkpoint(checkpointAfter).build())) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorOf().checkpoint(checkpointAfter).build())) {
             MessiMessage d = consumer.receive(100, TimeUnit.MILLISECONDS);
             assertNotNull(d);
             assertEquals(d.getExternalId(), "d");
@@ -458,7 +441,7 @@ public class FilesystemMessiClientTck {
         long timestampBeforeC;
         long timestampBeforeD;
         long timestampAfterD;
-        try (MessiProducer producer = client.producer("the-topic")) {
+        try (MessiProducer producer = topic.producer()) {
             timestampBeforeA = System.currentTimeMillis();
             producer.publish(MessiMessage.newBuilder().setExternalId("a").putData("payload1", ByteString.copyFrom(new byte[5])).putData("payload2", ByteString.copyFrom(new byte[5])).build());
             Thread.sleep(5);
@@ -473,7 +456,7 @@ public class FilesystemMessiClientTck {
             Thread.sleep(5);
             timestampAfterD = System.currentTimeMillis();
         }
-        try (MessiConsumer consumer = client.consumer("the-topic")) {
+        try (MessiStreamingConsumer consumer = shard.streamingConsumer(shard.cursorAtTrimHorizon())) {
             consumer.seek(timestampAfterD);
             assertNull(consumer.receive(100, TimeUnit.MILLISECONDS));
             consumer.seek(timestampBeforeD);
@@ -485,24 +468,5 @@ public class FilesystemMessiClientTck {
             consumer.seek(timestampBeforeA);
             assertEquals(consumer.receive(100, TimeUnit.MILLISECONDS).getExternalId(), "a");
         }
-    }
-
-    @Test
-    public void thatMetadataCanBeWrittenListedAndRead() {
-        MessiMetadataClient metadata = client.metadata("the-topic");
-        assertEquals(metadata.topic(), "the-topic");
-        assertEquals(metadata.keys().size(), 0);
-        metadata.put("key-1", "Value-1".getBytes(StandardCharsets.UTF_8));
-        metadata.put("key-2", "Value-2".getBytes(StandardCharsets.UTF_8));
-        assertEquals(metadata.keys().size(), 2);
-        assertEquals(new String(metadata.get("key-1"), StandardCharsets.UTF_8), "Value-1");
-        assertEquals(new String(metadata.get("key-2"), StandardCharsets.UTF_8), "Value-2");
-        metadata.put("key-2", "Overwritten-Value-2".getBytes(StandardCharsets.UTF_8));
-        assertEquals(metadata.keys().size(), 2);
-        assertEquals(new String(metadata.get("key-2"), StandardCharsets.UTF_8), "Overwritten-Value-2");
-        metadata.remove("key-1");
-        assertEquals(metadata.keys().size(), 1);
-        metadata.remove("key-2");
-        assertEquals(metadata.keys().size(), 0);
     }
 }

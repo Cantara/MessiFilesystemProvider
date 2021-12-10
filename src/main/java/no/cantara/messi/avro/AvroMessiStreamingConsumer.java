@@ -2,9 +2,9 @@ package no.cantara.messi.avro;
 
 import de.huxhorn.sulky.ulid.ULID;
 import no.cantara.messi.api.MessiClosedException;
-import no.cantara.messi.api.MessiConsumer;
 import no.cantara.messi.api.MessiCursor;
 import no.cantara.messi.api.MessiNoSuchExternalIdException;
+import no.cantara.messi.api.MessiStreamingConsumer;
 import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
 import org.apache.avro.file.DataFileReader;
@@ -27,17 +27,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-class AvroMessiConsumer implements MessiConsumer {
+class AvroMessiStreamingConsumer implements MessiStreamingConsumer {
 
     final String topic;
+    final String providerTechnology;
     final TopicAvroFileCache topicAvroFileCache;
     final AtomicReference<Long> activeBlobFromKeyRef = new AtomicReference<>(-1L);
     final AtomicReference<DataFileReader<GenericRecord>> activeBlobDataFileReaderRef = new AtomicReference<>(null);
     final AtomicBoolean closed = new AtomicBoolean(false);
     final Deque<MessiMessage> preloadedMessages = new ConcurrentLinkedDeque<>();
 
-    AvroMessiConsumer(AvroMessiUtils avroMessageUtils, String topic, AvroMessiCursor cursor, int minFileListingIntervalSeconds) {
+    AvroMessiStreamingConsumer(AvroMessiUtils avroMessageUtils, String topic, AvroMessiCursor cursor, int minFileListingIntervalSeconds, String providerTechnology) {
         this.topic = topic;
+        this.providerTechnology = providerTechnology;
         this.topicAvroFileCache = new TopicAvroFileCache(avroMessageUtils, topic, minFileListingIntervalSeconds);
         if (cursor == null) {
             seek(0);
@@ -104,10 +106,10 @@ class AvroMessiConsumer implements MessiConsumer {
         }
     }
 
-    static ULID.Value ulidOfExternalId(AvroMessiUtils readOnlyAvroMessiUtils, int fileListingMinIntervalSeconds, String topic, String externalId, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
+    ULID.Value ulidOfExternalId(AvroMessiUtils readOnlyAvroMessiUtils, int fileListingMinIntervalSeconds, String topic, String externalId, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
         ULID.Value lowerBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp - tolerance.toMillis());
         ULID.Value upperBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp + tolerance.toMillis());
-        try (AvroMessiConsumer consumer = new AvroMessiConsumer(readOnlyAvroMessiUtils, topic, new AvroMessiCursor.Builder().ulid(lowerBoundUlid).inclusive(true).build(), fileListingMinIntervalSeconds)) {
+        try (AvroMessiStreamingConsumer consumer = new AvroMessiStreamingConsumer(readOnlyAvroMessiUtils, topic, new AvroMessiCursor.Builder().ulid(lowerBoundUlid).inclusive(true).build(), fileListingMinIntervalSeconds, providerTechnology)) {
             MessiMessage message;
             while ((message = consumer.receive(0, TimeUnit.SECONDS)) != null) {
                 ULID.Value messageUlid = MessiULIDUtils.toUlid(message.getUlid());
@@ -168,7 +170,9 @@ class AvroMessiConsumer implements MessiConsumer {
             return receive(timeout, unit);
         }
         GenericRecord record = dataFileReader.next();
-        MessiMessage msg = AvroMessiMessageSchema.toMessage(record);
+        MessiMessage.Builder builder = AvroMessiMessageSchema.toMessage(record);
+        AvroMessiMessageSchema.deserializePostProcessing(builder, providerTechnology);
+        MessiMessage msg = builder.build();
         return msg;
     }
 
@@ -200,6 +204,11 @@ class AvroMessiConsumer implements MessiConsumer {
     }
 
     @Override
+    public MessiCursor currentPosition() {
+        throw new UnsupportedOperationException("TODO"); // TODO
+    }
+
+    @Override
     public void seek(long timestamp) {
         preloadedMessages.clear();
         DataFileReader<GenericRecord> previousDataFileReader = activeBlobDataFileReaderRef.getAndSet(null);
@@ -226,7 +235,9 @@ class AvroMessiConsumer implements MessiConsumer {
         while (dataFileReader.hasNext()) {
             try {
                 record = dataFileReader.next(record);
-                MessiMessage message = AvroMessiMessageSchema.toMessage(record);
+                MessiMessage.Builder builder = AvroMessiMessageSchema.toMessage(record);
+                AvroMessiMessageSchema.deserializePostProcessing(builder, providerTechnology);
+                MessiMessage message = builder.build();
                 long msgTimestamp = MessiULIDUtils.toUlid(message.getUlid()).timestamp();
                 if (msgTimestamp >= timestamp) {
                     preloadedMessages.add(message);
@@ -236,22 +247,6 @@ class AvroMessiConsumer implements MessiConsumer {
                 throw new RuntimeException(e);
             }
         }
-    }
-
-    @Override
-    public MessiCursor cursorAt(MessiMessage messiMessage) {
-        return new AvroMessiCursor.Builder()
-                .ulid(MessiULIDUtils.toUlid(messiMessage.getUlid()))
-                .inclusive(true)
-                .build();
-    }
-
-    @Override
-    public MessiCursor cursorAfter(MessiMessage messiMessage) {
-        return new AvroMessiCursor.Builder()
-                .ulid(MessiULIDUtils.toUlid(messiMessage.getUlid()))
-                .inclusive(false)
-                .build();
     }
 
     private DataFileReader<GenericRecord> setDataFileReader(MessiAvroFile messiAvroFile) {

@@ -1,35 +1,32 @@
 package no.cantara.messi.filesystem;
 
 import no.cantara.messi.api.MessiMetadataClient;
+import no.cantara.messi.api.MessiTopic;
 import no.cantara.messi.avro.AvroMessiClient;
+import no.cantara.messi.avro.AvroMessiTopic;
 import no.cantara.messi.avro.AvroMessiUtils;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class FilesystemMessiClient extends AvroMessiClient {
 
+    static final String PROVIDER_TECHNOLOGY = "Filesystem (Avro)";
+
     final Path storageFolder;
 
     public FilesystemMessiClient(Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, int fileListingMinIntervalSeconds, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, Path storageFolder) {
-        super(tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, fileListingMinIntervalSeconds, readOnlyAvroMessiUtils, readWriteAvroMessiUtils);
+        super(tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, fileListingMinIntervalSeconds, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, PROVIDER_TECHNOLOGY);
         this.storageFolder = storageFolder;
     }
 
     @Override
-    public MessiMetadataClient metadata(String topic) {
-        Path metadataFolder = createMetadataFolderIfNotExists(topic);
-        return new FilesystemMessiMetadataClient(metadataFolder, topic);
+    public AvroMessiTopic topicOf(String name) {
+        return topicByName.computeIfAbsent(name, topicName -> new FilesystemMessiTopic(topicName, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, fileListingMinIntervalSeconds, storageFolder, PROVIDER_TECHNOLOGY));
     }
 
-    Path createMetadataFolderIfNotExists(String topic) {
-        Path metadataFolder = storageFolder.resolve(topic).resolve("metadata");
-        try {
-            Files.createDirectories(metadataFolder);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return metadataFolder;
+    @Override
+    public MessiMetadataClient metadata(String topic) {
+        MessiTopic messiTopic = topicOf(topic);
+        return messiTopic.metadata();
     }
 }

@@ -53,7 +53,7 @@ class FilesystemMessiUtils implements AvroMessiUtils {
      */
     String getFirstExternalId(Path path) {
         Matcher filenameMatcher = filenameMatcherOf(path);
-        String externalId = filenameMatcher.group("externalId");
+        String externalId = filenameMatcher.group("position");
         return externalId;
     }
 

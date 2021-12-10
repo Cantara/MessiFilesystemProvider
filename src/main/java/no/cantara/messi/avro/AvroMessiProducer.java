@@ -9,6 +9,7 @@ import no.cantara.messi.protos.MessiOrdering;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.file.SeekableFileInput;
+import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
@@ -52,6 +53,7 @@ class AvroMessiProducer implements MessiProducer {
 
     final AtomicLong timestampOfFirstMessageInWindow = new AtomicLong(-1);
     final AvroFileMetadata activeAvrofileMetadata;
+    final String providerTechnology;
     final AtomicLong avroBytesWrittenInBlock = new AtomicLong(0);
 
     final ReentrantLock lock = new ReentrantLock();
@@ -69,7 +71,7 @@ class AvroMessiProducer implements MessiProducer {
         }
     }
 
-    AvroMessiProducer(AvroMessiUtils avroMessiUtils, Path tmpFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, String topic) {
+    AvroMessiProducer(AvroMessiUtils avroMessiUtils, Path tmpFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, String topic, String providerTechnology) {
         this.avroMessiUtils = avroMessiUtils;
         this.tmpFolder = tmpFolder;
         this.avroMaxSeconds = avroMaxSeconds;
@@ -77,6 +79,7 @@ class AvroMessiProducer implements MessiProducer {
         this.avroSyncInterval = avroSyncInterval;
         this.topic = topic;
         this.activeAvrofileMetadata = avroMessiUtils.newAvrofileMetadata();
+        this.providerTechnology = providerTechnology;
         this.topicFolder = tmpFolder.resolve(topic);
         try {
             Files.createDirectories(topicFolder);
@@ -225,6 +228,17 @@ class AvroMessiProducer implements MessiProducer {
 
                 try {
                     GenericRecord record = AvroMessiMessageSchema.toAvro(ulidValue, message);
+                    long nowMillis = System.currentTimeMillis();
+                    if (!message.hasFirstProvider()) {
+                        GenericData.Record firstProvider = new GenericData.Record(AvroMessiMessageSchema.providerSchema);
+                        firstProvider.put("publishedTimestamp", nowMillis);
+                        firstProvider.put("technology", providerTechnology); // must set here in producer
+                        record.put("firstProvider", firstProvider);
+                    }
+                    GenericData.Record provider = new GenericData.Record(AvroMessiMessageSchema.providerSchema);
+                    provider.put("publishedTimestamp", nowMillis);
+                    // technology will be set in consumer to save space
+                    record.put("provider", provider);
 
                     if (avroBytesWrittenInBlock.get() >= avroSyncInterval) {
                         // start new block in avro file
