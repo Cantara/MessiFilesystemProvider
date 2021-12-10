@@ -14,6 +14,7 @@ public abstract class AvroMessiTopic implements MessiTopic {
 
     static final Logger LOG = LoggerFactory.getLogger(AvroMessiTopic.class);
 
+    protected final AvroMessiClient messiClient;
     protected final String name;
     protected final Path tmpFileFolder;
     protected final long avroMaxSeconds;
@@ -28,7 +29,8 @@ public abstract class AvroMessiTopic implements MessiTopic {
     protected final AvroMessiShard theShard;
     protected final String providerTechnology;
 
-    protected AvroMessiTopic(String name, Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, int fileListingMinIntervalSeconds, String providerTechnology) {
+    protected AvroMessiTopic(AvroMessiClient messiClient, String name, Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, int fileListingMinIntervalSeconds, String providerTechnology) {
+        this.messiClient = messiClient;
         this.name = name;
         this.tmpFileFolder = tmpFileFolder;
         this.avroMaxSeconds = avroMaxSeconds;
@@ -37,7 +39,7 @@ public abstract class AvroMessiTopic implements MessiTopic {
         this.readOnlyAvroMessiUtils = readOnlyAvroMessiUtils;
         this.readWriteAvroMessiUtils = readWriteAvroMessiUtils;
         this.fileListingMinIntervalSeconds = fileListingMinIntervalSeconds;
-        this.theShard = new AvroMessiShard(name, firstShard(), this.readOnlyAvroMessiUtils, this.fileListingMinIntervalSeconds, providerTechnology);
+        this.theShard = new AvroMessiShard(this, name, firstShard(), this.readOnlyAvroMessiUtils, this.fileListingMinIntervalSeconds, providerTechnology);
         this.providerTechnology = providerTechnology;
     }
 
@@ -59,6 +61,11 @@ public abstract class AvroMessiTopic implements MessiTopic {
     @Override
     public AvroMessiShard shardOf(String shardId) {
         return theShard;
+    }
+
+    @Override
+    public AvroMessiClient client() {
+        return messiClient;
     }
 
     @Override

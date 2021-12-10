@@ -23,6 +23,7 @@ public class AvroMessiShard implements MessiShard {
 
     static final Logger LOG = LoggerFactory.getLogger(AvroMessiShard.class);
 
+    protected final AvroMessiTopic topic;
     protected final String topicName;
     protected final String shardId;
     protected final AvroMessiUtils readOnlyAvroMessiUtils;
@@ -32,7 +33,8 @@ public class AvroMessiShard implements MessiShard {
     protected final List<AvroMessiStreamingConsumer> consumers = new CopyOnWriteArrayList<>();
     protected final AtomicBoolean closed = new AtomicBoolean(false);
 
-    public AvroMessiShard(String topicName, String shardId, AvroMessiUtils readOnlyAvroMessiUtils, int fileListingMinIntervalSeconds, String providerTechnology) {
+    public AvroMessiShard(AvroMessiTopic topic, String topicName, String shardId, AvroMessiUtils readOnlyAvroMessiUtils, int fileListingMinIntervalSeconds, String providerTechnology) {
+        this.topic = topic;
         this.topicName = topicName;
         this.shardId = shardId;
         this.readOnlyAvroMessiUtils = readOnlyAvroMessiUtils;
@@ -50,7 +52,7 @@ public class AvroMessiShard implements MessiShard {
         if (closed.get()) {
             throw new MessiClosedException();
         }
-        AvroMessiStreamingConsumer consumer = new AvroMessiStreamingConsumer(readOnlyAvroMessiUtils, topicName, (AvroMessiCursor) initialPosition, fileListingMinIntervalSeconds, providerTechnology);
+        AvroMessiStreamingConsumer consumer = new AvroMessiStreamingConsumer(this, readOnlyAvroMessiUtils, topicName, (AvroMessiCursor) initialPosition, fileListingMinIntervalSeconds, providerTechnology);
         consumers.add(consumer);
         return consumer;
     }
@@ -114,6 +116,11 @@ public class AvroMessiShard implements MessiShard {
         return new AvroMessiCursor.Builder()
                 .oldest()
                 .build();
+    }
+
+    @Override
+    public AvroMessiTopic topic() {
+        return topic;
     }
 
     @Override

@@ -21,7 +21,7 @@ public class FilesystemMessiClient extends AvroMessiClient {
 
     @Override
     public AvroMessiTopic topicOf(String name) {
-        return topicByName.computeIfAbsent(name, topicName -> new FilesystemMessiTopic(topicName, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, fileListingMinIntervalSeconds, storageFolder, PROVIDER_TECHNOLOGY));
+        return topicByName.computeIfAbsent(name, topicName -> new FilesystemMessiTopic(this, topicName, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, fileListingMinIntervalSeconds, storageFolder, PROVIDER_TECHNOLOGY));
     }
 
     @Override

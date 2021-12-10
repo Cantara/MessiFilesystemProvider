@@ -12,8 +12,8 @@ public class FilesystemMessiTopic extends AvroMessiTopic {
 
     final Path storageFolder;
 
-    public FilesystemMessiTopic(String name, Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, int fileListingMinIntervalSeconds, Path storageFolder, String providerTechnology) {
-        super(name, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, fileListingMinIntervalSeconds, providerTechnology);
+    public FilesystemMessiTopic(FilesystemMessiClient messiClient, String name, Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, int fileListingMinIntervalSeconds, Path storageFolder, String providerTechnology) {
+        super(messiClient, name, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, fileListingMinIntervalSeconds, providerTechnology);
         this.storageFolder = storageFolder;
     }
 
