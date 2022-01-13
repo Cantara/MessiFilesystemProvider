@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +28,7 @@ public abstract class AvroMessiTopic implements MessiTopic {
     protected final AtomicBoolean closed = new AtomicBoolean(false);
     protected final List<AvroMessiProducer> producers = new CopyOnWriteArrayList<>();
     protected final AvroMessiShard theShard;
+    protected final List<String> shards;
     protected final String providerTechnology;
 
     protected AvroMessiTopic(AvroMessiClient messiClient, String name, Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, int fileListingMinIntervalSeconds, String providerTechnology) {
@@ -40,6 +42,9 @@ public abstract class AvroMessiTopic implements MessiTopic {
         this.readWriteAvroMessiUtils = readWriteAvroMessiUtils;
         this.fileListingMinIntervalSeconds = fileListingMinIntervalSeconds;
         this.theShard = new AvroMessiShard(this, name, firstShard(), this.readOnlyAvroMessiUtils, this.fileListingMinIntervalSeconds, providerTechnology);
+        List<String> shards = new ArrayList<>(1);
+        shards.add(firstShard());
+        this.shards = shards;
         this.providerTechnology = providerTechnology;
     }
 
@@ -53,9 +58,14 @@ public abstract class AvroMessiTopic implements MessiTopic {
         if (closed.get()) {
             throw new MessiClosedException();
         }
-        AvroMessiProducer producer = new AvroMessiProducer(readWriteAvroMessiUtils, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, name, providerTechnology);
+        AvroMessiProducer producer = new AvroMessiProducer(this, readWriteAvroMessiUtils, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, name, providerTechnology);
         producers.add(producer);
         return producer;
+    }
+
+    @Override
+    public List<String> shards() {
+        return shards;
     }
 
     @Override

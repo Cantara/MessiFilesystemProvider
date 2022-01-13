@@ -5,7 +5,6 @@ import no.cantara.messi.api.MessiClosedException;
 import no.cantara.messi.api.MessiProducer;
 import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
-import no.cantara.messi.protos.MessiOrdering;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.file.DataFileWriter;
 import org.apache.avro.file.SeekableFileInput;
@@ -21,7 +20,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -40,16 +38,18 @@ class AvroMessiProducer implements MessiProducer {
     final ULID ulid = new ULID();
     final AtomicReference<ULID.Value> prevUlid = new AtomicReference<>(ulid.nextValue());
 
+    final AvroMessiTopic topic;
     final AvroMessiUtils avroMessiUtils;
     final Path tmpFolder;
     final long avroMaxSeconds;
     final long avroMaxBytes;
     final int avroSyncInterval;
-    final String topic;
+    final String topicName;
 
     final AtomicReference<DataFileWriter<GenericRecord>> dataFileWriterRef = new AtomicReference<>();
     final Path topicFolder;
     final AtomicReference<Path> pathRef = new AtomicReference<>();
+    final AtomicLong lastSequenceWritten = new AtomicLong(0); // first sequence number is 1
 
     final AtomicLong timestampOfFirstMessageInWindow = new AtomicLong(-1);
     final AvroFileMetadata activeAvrofileMetadata;
@@ -71,20 +71,28 @@ class AvroMessiProducer implements MessiProducer {
         }
     }
 
-    AvroMessiProducer(AvroMessiUtils avroMessiUtils, Path tmpFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, String topic, String providerTechnology) {
+    AvroMessiProducer(AvroMessiTopic topic, AvroMessiUtils avroMessiUtils, Path tmpFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, String topicName, String providerTechnology) {
+        this.topic = topic;
         this.avroMessiUtils = avroMessiUtils;
         this.tmpFolder = tmpFolder;
         this.avroMaxSeconds = avroMaxSeconds;
         this.avroMaxBytes = avroMaxBytes;
         this.avroSyncInterval = avroSyncInterval;
-        this.topic = topic;
+        this.topicName = topicName;
         this.activeAvrofileMetadata = avroMessiUtils.newAvrofileMetadata();
         this.providerTechnology = providerTechnology;
-        this.topicFolder = tmpFolder.resolve(topic);
+        this.topicFolder = tmpFolder.resolve(topicName);
         try {
             Files.createDirectories(topicFolder);
         } catch (IOException e) {
             throw new RuntimeException(e);
+        }
+        AvroMessiShard theOnlyShard = topic.shardOf(topic.firstShard());
+        MessiMessage lastMessageInStream = theOnlyShard.lastMessage();
+        if (lastMessageInStream != null) {
+            String lastSequenceNumber = lastMessageInStream.getProvider().getSequenceNumber();
+            long lastSequence = Long.parseLong(lastSequenceNumber);
+            lastSequenceWritten.set(lastSequence);
         }
         createOrOverwriteLocalAvroFile();
         this.uploadThread = new Thread(() -> {
@@ -93,14 +101,14 @@ class AvroMessiProducer implements MessiProducer {
                 try {
                     upload = uploadQueue.take(); // wait for upload task
                 } catch (InterruptedException e) {
-                    LOG.warn("Closing producer topic {}", topic);
+                    LOG.warn("Closing producer topic {}", topicName);
                     close();
-                    LOG.warn("Upload thread interrupted. Upload thread for producer of topic {} will now die.", topic);
+                    LOG.warn("Upload thread interrupted. Upload thread for producer of topic {} will now die.", topicName);
                     return;
                 }
                 try {
                     if (upload.source == null) {
-                        LOG.info("Upload thread for producer of topic {} received close signal and will now die.", topic);
+                        LOG.info("Upload thread for producer of topic {} received close signal and will now die.", topicName);
                         return;
                     }
                     verifySeekableToLastBlockOffsetAsGivenByFilename(upload.source, upload.target.getOffsetOfLastBlock());
@@ -111,9 +119,9 @@ class AvroMessiProducer implements MessiProducer {
                     LOG.info("Copy COMPLETE! Deleted Avro file {}", upload.source.getFileName());
                 } catch (Throwable t) {
                     LOG.error(String.format("While uploading file %s to target %s", upload.source.getFileName(), upload.target), t);
-                    LOG.warn("Closing producer topic {}", topic);
+                    LOG.warn("Closing producer topic {}", topicName);
                     close();
-                    LOG.warn("Upload thread for producer of topic {} will now die.", topic);
+                    LOG.warn("Upload thread for producer of topic {} will now die.", topicName);
                     return;
                 }
             }
@@ -165,7 +173,7 @@ class AvroMessiProducer implements MessiProducer {
             Path path = pathRef.get();
             if (path != null) {
                 if (activeAvrofileMetadata.getCount() > 0) {
-                    MessiAvroFile messiAvroFile = activeAvrofileMetadata.toMessiAvroFile(topic);
+                    MessiAvroFile messiAvroFile = activeAvrofileMetadata.toMessiAvroFile(topicName);
                     uploadQueue.add(new Upload(path, messiAvroFile)); // schedule upload asynchronously
                 } else {
                     // no records, no need to write file to output-store
@@ -188,7 +196,7 @@ class AvroMessiProducer implements MessiProducer {
 
     @Override
     public String topic() {
-        return topic;
+        return topicName;
     }
 
     @Override
@@ -229,24 +237,28 @@ class AvroMessiProducer implements MessiProducer {
                 try {
                     GenericRecord record = AvroMessiMessageSchema.toAvro(ulidValue, message);
                     long nowMillis = System.currentTimeMillis();
+                    String currentSequenceNumber = String.valueOf(lastSequenceWritten.incrementAndGet());
                     if (!message.hasFirstProvider()) {
                         GenericData.Record firstProvider = new GenericData.Record(AvroMessiMessageSchema.providerSchema);
                         firstProvider.put("publishedTimestamp", nowMillis);
                         firstProvider.put("technology", providerTechnology); // must set here in producer
+                        firstProvider.put("sequenceNumber", currentSequenceNumber);
                         record.put("firstProvider", firstProvider);
                     }
                     GenericData.Record provider = new GenericData.Record(AvroMessiMessageSchema.providerSchema);
                     provider.put("publishedTimestamp", nowMillis);
+                    provider.put("sequenceNumber", currentSequenceNumber);
                     // technology will be set in consumer to save space
                     record.put("provider", provider);
 
+                    DataFileWriter<GenericRecord> dataFileWriter = dataFileWriterRef.get();
                     if (avroBytesWrittenInBlock.get() >= avroSyncInterval) {
                         // start new block in avro file
-                        long lastSyncPosition = dataFileWriterRef.get().sync();
+                        long lastSyncPosition = dataFileWriter.sync();
                         activeAvrofileMetadata.setSyncOfLastBlock(lastSyncPosition);
                         avroBytesWrittenInBlock.set(0);
                     }
-                    dataFileWriterRef.get().append(record);
+                    dataFileWriter.append(record);
                     activeAvrofileMetadata.incrementCounter(1);
                     avroBytesWrittenInBlock.addAndGet(estimateAvroSizeOfMessage(message));
                 } catch (IOException e) {
@@ -265,14 +277,26 @@ class AvroMessiProducer implements MessiProducer {
     }
 
     static long estimateAvroSizeOfMessage(MessiMessage message) {
-        // TODO more fields
-        return 16 + // ulid
-                2 + Optional.of(message.getOrdering()).map(MessiOrdering::getGroup).map(String::length).orElse(0) + // orderingGroup
-                6 + // sequenceNumber
-                2 + message.getExternalId().length() // position
+        return message.getSerializedSize(); // Use size of serialized protobuf-message. This is usually slightly longer than size of avro message, but should be close enough to determine avro sync interval
+        /*
+        // TODO more accurate length-computation ... best would be to get the actual serialized length
+        return 16 // ulid
+                + 2 + message.getExternalId().length() // position
+                + 2 + Optional.of(message.getPartitionKey()).map(String::length).orElse(0) // partitionKey
+                + 6 // sequenceNumber
+                + message.getAttributesMap().entrySet().stream()
+                .map(e -> 2L + e.getKey().length() + 2 + e.getValue().length())
+                .reduce(0L, Long::sum)
                 + message.getDataMap().entrySet().stream()
                 .map(e -> 2L + e.getKey().length() + 4 + e.getValue().size())
-                .reduce(0L, Long::sum);
+                .reduce(0L, Long::sum)
+                + 2 + Optional.of(message.getSource()).map(MessiSource::getClientSourceId).map(String::length).orElse(0) // source
+                + 2 + Optional.of(message.getProvider()).map(p -> (p.hasPublishedTimestamp() ? 8 : 2) + (p.hasShardId() ? 2 + p.getShardId().length() : 2) + (p.hasSequenceNumber() ? 2 + p.getSequenceNumber().length() : 2) + (p.hasTechnology() ? 2 + p.getTechnology().length() : 2)).orElse(0) // provider
+                + 2 + Optional.of(message.getOrdering()).map(o -> o.getGroup().length() + 8).orElse(0) // orderingGroup
+                + 12 // timestamp
+                + 2 + Optional.of(message.getFirstProvider()).map(p -> (p.hasPublishedTimestamp() ? 8 : 2) + (p.hasShardId() ? 2 + p.getShardId().length() : 2) + (p.hasSequenceNumber() ? 2 + p.getSequenceNumber().length() : 2) + (p.hasTechnology() ? 2 + p.getTechnology().length() : 2)).orElse(0) // first-provider
+                ;
+         */
     }
 
     @Override

@@ -6,6 +6,7 @@ import no.cantara.messi.api.MessiShard;
 import no.cantara.messi.api.MessiStreamingConsumer;
 import no.cantara.messi.api.MessiULIDUtils;
 import no.cantara.messi.protos.MessiMessage;
+import no.cantara.messi.protos.MessiProvider;
 import org.apache.avro.file.DataFileReader;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
@@ -71,7 +72,19 @@ public class AvroMessiShard implements MessiShard {
 
     @Override
     public AvroMessiCursor cursorAt(MessiMessage messiMessage) {
+        if (!messiMessage.hasUlid()) {
+            throw new IllegalArgumentException("Message is missing ulid");
+        }
+        if (!messiMessage.hasProvider()) {
+            throw new IllegalArgumentException("Message is missing provider");
+        }
+        MessiProvider provider = messiMessage.getProvider();
+        if (!provider.hasSequenceNumber()) {
+            throw new IllegalArgumentException("Message provider is missing sequence-number");
+        }
+        String sequenceNumber = provider.getSequenceNumber();
         return new AvroMessiCursor.Builder()
+                .providerSequenceNumber(sequenceNumber)
                 .ulid(MessiULIDUtils.toUlid(messiMessage.getUlid()))
                 .inclusive(true)
                 .build();
@@ -79,7 +92,19 @@ public class AvroMessiShard implements MessiShard {
 
     @Override
     public AvroMessiCursor cursorAfter(MessiMessage messiMessage) {
+        if (!messiMessage.hasUlid()) {
+            throw new IllegalArgumentException("Message is missing ulid");
+        }
+        if (!messiMessage.hasProvider()) {
+            throw new IllegalArgumentException("Message is missing provider");
+        }
+        MessiProvider provider = messiMessage.getProvider();
+        if (!provider.hasSequenceNumber()) {
+            throw new IllegalArgumentException("Message provider is missing sequence-number");
+        }
+        String sequenceNumber = provider.getSequenceNumber();
         return new AvroMessiCursor.Builder()
+                .providerSequenceNumber(sequenceNumber)
                 .ulid(MessiULIDUtils.toUlid(messiMessage.getUlid()))
                 .inclusive(false)
                 .build();
