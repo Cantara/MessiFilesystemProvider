@@ -27,6 +27,11 @@
 
     <developers>
         <developer>
+            <name>Ove Ranheim</name>
+            <email>ove.ranheim@gmail.com</email>
+            <url>https://www.linkedin.com/in/overanheim/</url>
+        </developer>
+        <developer>
             <name>Kim Christian Gaarder</name>
             <email>kim.christian.gaarder@gmail.com</email>
             <url>https://www.linkedin.com/in/kimchristiangaarder/</url>
@@ -38,7 +43,7 @@
     <scm>
         <connection>scm:git:git://github.com/Cantara/MessiFilesystemProvider.git</connection>
         <developerConnection>scm:git:git@github.com:Cantara/MessiFilesystemProvider.git</developerConnection>
-        <url>https://github.com/Cantara/MessiFilesystemProvider/tree/master</url>
+        <url>https://github.com/Cantara/MessiFilesystemProvider/tree/main</url>
         <tag>HEAD</tag>
     </scm>
 
@@ -46,7 +51,7 @@
         <dependency>
             <groupId>no.cantara.messi</groupId>
             <artifactId>messi-sdk</artifactId>
-            <version>0.11.0</version>
+            <version>0.12.0</version>
         </dependency>
         <dependency>
             <groupId>no.cantara.config</groupId>
