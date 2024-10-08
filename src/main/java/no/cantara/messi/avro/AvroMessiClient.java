@@ -29,7 +29,14 @@ public abstract class AvroMessiClient implements MessiClient {
     protected final AvroMessiUtils readWriteAvroMessiUtils;
     protected final String providerTechnology;
 
-    public AvroMessiClient(Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, int fileListingMinIntervalSeconds, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, String providerTechnology) {
+    public AvroMessiClient(Path tmpFileFolder,
+                           long avroMaxSeconds,
+                           long avroMaxBytes,
+                           int avroSyncInterval,
+                           int fileListingMinIntervalSeconds,
+                           AvroMessiUtils readOnlyAvroMessiUtils,
+                           AvroMessiUtils readWriteAvroMessiUtils,
+                           String providerTechnology) {
         this.tmpFileFolder = tmpFileFolder;
         this.avroMaxSeconds = avroMaxSeconds;
         this.avroMaxBytes = avroMaxBytes;

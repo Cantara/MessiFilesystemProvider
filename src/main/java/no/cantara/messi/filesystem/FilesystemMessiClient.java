@@ -14,14 +14,32 @@ public class FilesystemMessiClient extends AvroMessiClient {
 
     final Path storageFolder;
 
-    public FilesystemMessiClient(Path tmpFileFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, int fileListingMinIntervalSeconds, AvroMessiUtils readOnlyAvroMessiUtils, AvroMessiUtils readWriteAvroMessiUtils, Path storageFolder) {
+    public FilesystemMessiClient(Path tmpFileFolder,
+                                 long avroMaxSeconds,
+                                 long avroMaxBytes,
+                                 int avroSyncInterval,
+                                 int fileListingMinIntervalSeconds,
+                                 AvroMessiUtils readOnlyAvroMessiUtils,
+                                 AvroMessiUtils readWriteAvroMessiUtils,
+                                 Path storageFolder) {
         super(tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, fileListingMinIntervalSeconds, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, PROVIDER_TECHNOLOGY);
         this.storageFolder = storageFolder;
     }
 
     @Override
     public AvroMessiTopic topicOf(String name) {
-        return topicByName.computeIfAbsent(name, topicName -> new FilesystemMessiTopic(this, topicName, tmpFileFolder, avroMaxSeconds, avroMaxBytes, avroSyncInterval, readOnlyAvroMessiUtils, readWriteAvroMessiUtils, fileListingMinIntervalSeconds, storageFolder, PROVIDER_TECHNOLOGY));
+        return topicByName.computeIfAbsent(name, topicName -> new FilesystemMessiTopic(
+                this,
+                topicName,
+                tmpFileFolder,
+                avroMaxSeconds,
+                avroMaxBytes,
+                avroSyncInterval,
+                readOnlyAvroMessiUtils,
+                readWriteAvroMessiUtils,
+                fileListingMinIntervalSeconds,
+                storageFolder,
+                PROVIDER_TECHNOLOGY));
     }
 
     @Override

@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-class AvroMessiStreamingConsumer implements MessiStreamingConsumer {
+public class AvroMessiStreamingConsumer implements MessiStreamingConsumer {
 
     final AvroMessiShard messiShard;
     final String topic;
@@ -38,7 +38,12 @@ class AvroMessiStreamingConsumer implements MessiStreamingConsumer {
     final AtomicBoolean closed = new AtomicBoolean(false);
     final Deque<MessiMessage> preloadedMessages = new ConcurrentLinkedDeque<>();
 
-    AvroMessiStreamingConsumer(AvroMessiShard messiShard, AvroMessiUtils avroMessageUtils, String topic, AvroMessiCursor cursor, int minFileListingIntervalSeconds, String providerTechnology) {
+    AvroMessiStreamingConsumer(AvroMessiShard messiShard,
+                               AvroMessiUtils avroMessageUtils,
+                               String topic,
+                               AvroMessiCursor cursor,
+                               int minFileListingIntervalSeconds,
+                               String providerTechnology) {
         this.messiShard = messiShard;
         this.topic = topic;
         this.providerTechnology = providerTechnology;
@@ -108,7 +113,12 @@ class AvroMessiStreamingConsumer implements MessiStreamingConsumer {
         }
     }
 
-    ULID.Value ulidOfExternalId(AvroMessiUtils readOnlyAvroMessiUtils, int fileListingMinIntervalSeconds, String topic, String externalId, long approxTimestamp, Duration tolerance) throws MessiNoSuchExternalIdException {
+    ULID.Value ulidOfExternalId(AvroMessiUtils readOnlyAvroMessiUtils,
+                                int fileListingMinIntervalSeconds,
+                                String topic, String externalId,
+                                long approxTimestamp,
+                                Duration tolerance) throws MessiNoSuchExternalIdException {
+
         ULID.Value lowerBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp - tolerance.toMillis());
         ULID.Value upperBoundUlid = MessiULIDUtils.beginningOf(approxTimestamp + tolerance.toMillis());
         try (AvroMessiStreamingConsumer consumer = new AvroMessiStreamingConsumer(messiShard, readOnlyAvroMessiUtils, topic, new AvroMessiCursor.Builder().ulid(lowerBoundUlid).inclusive(true).build(), fileListingMinIntervalSeconds, providerTechnology)) {

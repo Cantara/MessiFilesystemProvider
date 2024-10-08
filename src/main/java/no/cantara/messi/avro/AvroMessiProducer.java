@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
-class AvroMessiProducer implements MessiProducer {
+public class AvroMessiProducer implements MessiProducer {
 
     static final Logger LOG = LoggerFactory.getLogger(AvroMessiProducer.class);
 
@@ -71,7 +71,14 @@ class AvroMessiProducer implements MessiProducer {
         }
     }
 
-    AvroMessiProducer(AvroMessiTopic topic, AvroMessiUtils avroMessiUtils, Path tmpFolder, long avroMaxSeconds, long avroMaxBytes, int avroSyncInterval, String topicName, String providerTechnology) {
+    AvroMessiProducer(AvroMessiTopic topic,
+                      AvroMessiUtils avroMessiUtils,
+                      Path tmpFolder,
+                      long avroMaxSeconds,
+                      long avroMaxBytes,
+                      int avroSyncInterval,
+                      String topicName,
+                      String providerTechnology) {
         this.topic = topic;
         this.avroMessiUtils = avroMessiUtils;
         this.tmpFolder = tmpFolder;
