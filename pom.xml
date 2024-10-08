@@ -189,8 +189,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <target>11</target>
-                    <source>11</source>
+                    <release>11</release>
                     <encoding>${module.build.sourceEncoding}</encoding>
                     <meminitial>64m</meminitial>
                     <maxmem>512m</maxmem>
