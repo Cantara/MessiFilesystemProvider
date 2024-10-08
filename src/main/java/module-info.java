@@ -3,6 +3,7 @@ module messi.provider.filesystem {
     requires property.config;
 
     requires org.slf4j;
+    requires de.huxhorn.sulky.ulid;
     requires org.apache.avro;
     requires com.fasterxml.jackson.annotation;
     requires com.fasterxml.jackson.databind;

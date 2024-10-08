@@ -121,7 +121,7 @@ public class AvroMessiCursor implements MessiCursor {
         return (int) Math.max(Integer.MIN_VALUE, Math.min(l, Integer.MAX_VALUE));
     }
 
-    static class Builder implements MessiCursor.Builder {
+    public static class Builder implements MessiCursor.Builder {
 
         String shardId;
         MessiCursorStartingPointType type;
