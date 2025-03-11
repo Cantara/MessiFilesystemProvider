@@ -4,7 +4,7 @@
 
     <groupId>no.cantara.messi</groupId>
     <artifactId>messi-filesystem-provider</artifactId>
-    <version>0.12.8-SNAPSHOT</version>
+    <version>0.12.8</version>
     <packaging>jar</packaging>
 
     <name>Messi Filesystem Provider</name>
@@ -44,7 +44,7 @@
         <connection>scm:git:git://github.com/Cantara/MessiFilesystemProvider.git</connection>
         <developerConnection>scm:git:git@github.com:Cantara/MessiFilesystemProvider.git</developerConnection>
         <url>https://github.com/Cantara/MessiFilesystemProvider/tree/main</url>
-        <tag>HEAD</tag>
+        <tag>messi-filesystem-provider-0.12.8</tag>
     </scm>
 
     <dependencies>
